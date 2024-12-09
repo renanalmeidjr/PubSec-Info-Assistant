@@ -4,24 +4,18 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-        
         {
             "name": "Python: WebApp backend",
             "type": "python",
             "request": "launch",
-            "module": "flask",
-            "cwd": "${workspaceFolder}/app/backend",
-            "env": {
-                "FLASK_APP": "app.py",
-                "FLASK_ENV": "development",
-                "FLASK_DEBUG": "0"
-            },
+            "module": "uvicorn",
             "args": [
-                "run",
-                "--no-debugger",
-                "--no-reload",
-                "-p 5000"
+                "app:app",
+                "--reload",
+                "--port",
+                "5000"
             ],
+            "cwd": "${workspaceFolder}/app/backend",
             "console": "integratedTerminal",
             "justMyCode": true,
             "envFile": "${workspaceFolder}/scripts/environments/infrastructure.debug.env",
@@ -92,8 +86,8 @@
             "request": "launch",
             "program": "debug_tests.py",
             "args": [
-                "--storage_account_connection_str",
-                "${env:STORAGE_ACCOUNT_CONNECTION_STR},",
+                "--storage_account_url",
+                "${env:AZURE_BLOB_STORAGE_ENDPOINT},",
                 "--search_service_endpoint",
                 "${env:SEARCH_SERVICE_ENDPOINT}",
                 "--search_index",
@@ -104,10 +98,9 @@
                 "60"
             ],
             "env": {
-                "STORAGE_ACCOUNT_CONNECTION_STR": "${env:BLOB_CONNECTION_STRING}",
+                "storage_account_url": "${env:AZURE_BLOB_STORAGE_ENDPOINT}",
                 "SEARCH_SERVICE_ENDPOINT": "${env:AZURE_SEARCH_SERVICE_ENDPOINT}",
-                "SEARCH_INDEX": "${env:AZURE_SEARCH_INDEX}",
-                "SEARCH_KEY": "${env:AZURE_SEARCH_SERVICE_KEY}"
+                "SEARCH_INDEX": "${env:AZURE_SEARCH_INDEX}"
             },
             "cwd": "${workspaceFolder}/tests",
             "envFile": "${workspaceFolder}/scripts/environments/infrastructure.debug.env",

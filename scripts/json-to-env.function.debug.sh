@@ -4,11 +4,10 @@
 #!/bin/bash
 set -e
 
-if [ -n "${IN_AUTOMATION}" ]
-then
-    IS_USGOV_DEPLOYMENT=$(jq -r '.properties.outputs.iS_USGOV_DEPLOYMENT.value' infra_output.json)
-    
-    if [ -n "${IS_USGOV_DEPLOYMENT}" ] && $IS_USGOV_DEPLOYMENT; then
+source ./scripts/load-env.sh > /dev/null 2>&1
+
+if [ -n "${IN_AUTOMATION}" ]; then
+    if [ -n "${AZURE_ENVIRONMENT}" ] && [[ $AZURE_ENVIRONMENT == "AzureUSGovernment" ]]; then
         az cloud set --name AzureUSGovernment > /dev/null 2>&1
     fi
 
@@ -18,11 +17,11 @@ fi
 
 secrets="{"
 # Name of your Key Vault
-keyVaultName=$(cat infra_output.json | jq -r .properties.outputs.deploymenT_KEYVAULT_NAME.value)
+keyVaultName=$(cat inf_output.json | jq -r .AZURE_KEYVAULT_NAME.value)
 
 # Names of your secrets
-secretNames=("AZURE-SEARCH-SERVICE-KEY" "AZURE-BLOB-STORAGE-KEY" "BLOB-CONNECTION-STRING" "COSMOSDB-KEY" "AZURE-FORM-RECOGNIZER-KEY" "ENRICHMENT-KEY")
-azWebJobSecretName="BLOB-CONNECTION-STRING"
+secretNames=("AZURE-AI-KEY" "AZURE-STORAGE-CONNECTION-STRING")
+azWebJobSecretName="AZURE-STORAGE-CONNECTION-STRING"
 azWebJobVarName="AzureWebJobsStorage"
 
 # Retrieve and export each secret
@@ -41,95 +40,106 @@ secrets+="}"
 secrets="${secrets%,}"
 
 jq -r --arg secrets "$secrets" '
-    .properties.outputs |
-        [
+    [
         {
-            "path": "azurE_STORAGE_ACCOUNT",
+            "path": "AZURE_STORAGE_ACCOUNT",
             "env_var": "BLOB_STORAGE_ACCOUNT"
         },
         {
-            "path": "azurE_BLOB_DROP_STORAGE_CONTAINER",
+            "path": "AZURE_BLOB_DROP_STORAGE_CONTAINER",
             "env_var": "BLOB_STORAGE_ACCOUNT_UPLOAD_CONTAINER_NAME"
         },
         {
-            "path": "azurE_STORAGE_CONTAINER",
+            "path": "AZURE_STORAGE_CONTAINER",
             "env_var": "BLOB_STORAGE_ACCOUNT_OUTPUT_CONTAINER_NAME"
         },
         {
-            "path": "azurE_BLOB_LOG_STORAGE_CONTAINER",
+            "path": "AZURE_BLOB_LOG_STORAGE_CONTAINER",
             "env_var": "BLOB_STORAGE_ACCOUNT_LOG_CONTAINER_NAME"
         },
         {
-            "path": "chunK_TARGET_SIZE",
+            "path": "CHUNK_TARGET_SIZE",
             "env_var": "CHUNK_TARGET_SIZE"
         },
         {
-            "path": "fR_API_VERSION",
+            "path": "FR_API_VERSION",
             "env_var": "FR_API_VERSION"
         },
         {
-            "path": "targeT_PAGES",
+            "path": "TARGET_PAGES",
             "env_var": "TARGET_PAGES"
         },
         {
-            "path": "azurE_FORM_RECOGNIZER_ENDPOINT",
+            "path": "AZURE_FORM_RECOGNIZER_ENDPOINT",
             "env_var": "AZURE_FORM_RECOGNIZER_ENDPOINT"
         },
         {
-            "path": "azurE_COSMOSDB_URL",
+            "path": "AZURE_COSMOSDB_URL",
             "env_var": "COSMOSDB_URL"
         },
         {
-            "path": "azurE_COSMOSDB_LOG_DATABASE_NAME",
+            "path": "AZURE_COSMOSDB_LOG_DATABASE_NAME",
             "env_var": "COSMOSDB_LOG_DATABASE_NAME"
         },
         {
-            "path": "azurE_COSMOSDB_LOG_CONTAINER_NAME",
+            "path": "AZURE_COSMOSDB_LOG_CONTAINER_NAME",
             "env_var": "COSMOSDB_LOG_CONTAINER_NAME"
         },
         {
-            "path": "azurE_COSMOSDB_TAGS_DATABASE_NAME",
-            "env_var": "COSMOSDB_TAGS_DATABASE_NAME"
+            "path": "FUNC_STORAGE_CONNECTION_STRING__queueServiceUri",
+            "env_var": "AzureStorageConnection1__queueServiceUri"
         },
         {
-            "path": "azurE_COSMOSDB_TAGS_CONTAINER_NAME",
-            "env_var": "COSMOSDB_TAGS_CONTAINER_NAME"
+            "path": "FUNC_STORAGE_CONNECTION_STRING__blobServiceUri",
+            "env_var": "AzureStorageConnection1__blobServiceUri"
         },
         {
-            "path": "enrichmenT_ENDPOINT",
-            "env_var": "ENRICHMENT_ENDPOINT"
+            "path": "AZURE_AI_ENDPOINT",
+            "env_var": "AZURE_AI_ENDPOINT"
         },
         {
-            "path": "enrichmenT_NAME",
+            "path": "ENRICHMENT_NAME",
             "env_var": "ENRICHMENT_NAME"
         },
         {
-            "path": "targeT_TRANSLATION_LANGUAGE",
+            "path": "TARGET_TRANSLATION_LANGUAGE",
             "env_var": "TARGET_TRANSLATION_LANGUAGE"
         },
         {
-            "path": "enablE_DEV_CODE",
+            "path": "ENABLE_DEV_CODE",
             "env_var": "ENABLE_DEV_CODE"
         },
         {
-            "path": "bloB_STORAGE_ACCOUNT_ENDPOINT",
+            "path": "BLOB_STORAGE_ACCOUNT_ENDPOINT",
             "env_var": "BLOB_STORAGE_ACCOUNT_ENDPOINT"
         },
         {
-            "path": "azurE_LOCATION",
-            "env_var": "ENRICHMENT_LOCATION"
+            "path": "AZURE_QUEUE_STORAGE_ENDPOINT",
+            "env_var": "AZURE_QUEUE_STORAGE_ENDPOINT"
         },
         {
-            "path": "azurE_SEARCH_INDEX",
+            "path": "AZURE_LOCATION",
+            "env_var": "AZURE_AI_LOCATION"
+        },
+        {
+            "path": "AZURE_SEARCH_INDEX",
             "env_var": "AZURE_SEARCH_INDEX"
         },
         {
-            "path": "azurE_SEARCH_SERVICE_ENDPOINT",
+            "path": "AZURE_SEARCH_SERVICE_ENDPOINT",
             "env_var": "AZURE_SEARCH_SERVICE_ENDPOINT"
         },
         {
-            "path": "deploymenT_KEYVAULT_NAME",
-            "env_var": "DEPLOYMENT_KEYVAULT_NAME"
+            "path": "AZURE_AI_LOCATION",
+            "env_var": "AZURE_AI_LOCATION"
+        },
+        {
+            "path": "AZURE_AI_CREDENTIAL_DOMAIN",
+            "env_var": "AZURE_AI_CREDENTIAL_DOMAIN"
+        },
+        {
+            "path": "AZURE_OPENAI_AUTHORITY_HOST",
+            "env_var": "AZURE_OPENAI_AUTHORITY_HOST"
         }
     ] 
         as $env_vars_to_extract
@@ -150,7 +160,7 @@ jq -r --arg secrets "$secrets" '
         |
         reduce .[] as $item ({}; .[$item.key] = $item.value)
         |
-    {"IsEncrypted": false, "Values": (. + {"FUNCTIONS_WORKER_RUNTIME": "python", 
+    {"IsEncrypted": false, "Values": (. + {"FUNCTIONS_WORKER_RUNTIME": "python",
             "AzureWebJobs.parse_html_w_form_rec.Disabled": "true", 
             "MAX_SECONDS_HIDE_ON_UPLOAD": "30", 
             "MAX_SUBMIT_REQUEUE_COUNT": "10",
@@ -170,6 +180,7 @@ jq -r --arg secrets "$secrets" '
             "EMBEDDINGS_QUEUE": "embeddings-queue",
             "TEXT_ENRICHMENT_QUEUE": "text-enrichment-queue",
             "IMAGE_ENRICHMENT_QUEUE": "image-enrichment-queue",
+            "LOCAL_DEBUG": "true",
             } + ($secrets | fromjson)
              
     )}

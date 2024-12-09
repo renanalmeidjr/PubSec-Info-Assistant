@@ -16,6 +16,8 @@ For PDF's we use a service, known as [Azure AI Document Intelligence](https://le
 
 Image processing for 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'tif', and 'tiff' formats. Leveraging Azure's GPU optionally in regions where [available](https://learn.microsoft.com/en-us/azure/container-instances/container-instances-region-availability) to generate Captions and Deep Captions. We utilize the Cognitive Services [Computer Vision API](https://azure.microsoft.com/en-us/resources/cloud-computing-dictionary/what-is-computer-vision/?ef_id=_k_f4f6deceb1b41be24ecebbf7bfa0a48b_k_&OCID=AIDcmme9zx2qiz_SEM__k_f4f6deceb1b41be24ecebbf7bfa0a48b_k_&msclkid=f4f6deceb1b41be24ecebbf7bfa0a48b#object-classification) to generate descriptions and perform OCR on any text present within these image files. A JSON model of this data is then generated the same as with other document types.
 
+Image Search is only available in regions that support dense captions. For a full list of these regions please see the official documentation for Azure Vision Image Captions [here](https://learn.microsoft.com/en-us/azure/ai-services/computer-vision/concept-describe-images-40?tabs=dense)
+
 ## Detailed Flow of Pre-Processing
 
 In this section we explore the pre-processing flow in more detail, to enable you to understand the patterns employed and how you may adapt the configuration to meet your own needs. Below is a graphic representing the flow steps..
@@ -109,7 +111,6 @@ SUBMIT_REQUEUE_HIDE_SECONDS | If a throttling event occurs on upload, the messag
 TARGET_TRANSLATION_LANGUAGE | The target language that the process will translate chunks into
 ENRICHMENT_BACKOFF | The number of seconds a message will be invisible when resubmitted to the enrichment queue after a failure due to throttling. This will increase exponentially for every subsequent time a failure occurs
 MAX_ENRICHMENT_REQUEUE_COUNT | The maximum number of times a message will be pushed to the enrichment queue after a failure in the enrichment function
-TARGET_TRANSLATION_LANGUAGE | The language you wish all chunks to be translated to
 FR_API_VERSION | The API version of [Azure AI Document Intelligence](https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/overview?view=doc-intel-3.1.0) which you wish to use
 
 Likewise, below are some configuration values of the App Service that you may wish to adapt to your scenario

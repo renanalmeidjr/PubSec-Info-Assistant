@@ -1,6 +1,6 @@
-# Enhancing IA: Architectural Decisions
+# Enhancing IA agent template: Architectural Decisions
 
-we've focused our architectural decisions on the unique requirements of QnA accelerator for Public Sector customers. Our exploration and investigation efforts have been tailored to address the specific nuances of this use case. We've investigated the merits of different approaches across our solution, ensuring our architectural decisions are not just informed but fine-tuned for the unique demands of public sector customers. our findings and decisions may not be applicable to all Generative AI use cases.
+We've focused our architectural decisions on the unique requirements of IA agent template for Public Sector customers. Our exploration and investigation efforts have been tailored to address the specific nuances of this use case. We've investigated the merits of different approaches across our solution, ensuring our architectural decisions are not just informed but fine-tuned for the unique demands of public sector customers. our findings and decisions may not be applicable to all Generative AI use cases.
 
 ## Document Processing
 
@@ -23,7 +23,7 @@ In Retrieval Augmented Generation applications, a thorough grasp of context is e
 
 Initially, we explored Azure AI Search's built-in skillset for tasks like entity recognition and key phrase extraction. However, due to the additional overhead of utilizing the skillset from Azure AI Search, we opted for custom data processing to extract key phrases and entities such as organizations, locations, and events. This approach enriched the search index by providing additional metadata and context, thereby enhancing retrieval effectiveness. Additionally, we employed embeddings to capture semantic relationships and contextual nuances, improving our understanding of textual data.
 
-To generate embeddings, we empowered users to choose the embedding model that best suits their content and use case, acknowledging that a one-size-fits-all approach is not ideal. Users have the flexibility to opt for the closed-source Azure Open AI embedding or one of the open-source embedding models, including the multilingual embedding model.
+To generate embeddings, we empowered users to choose the embedding model that best suits their content and use case, acknowledging that a one-size-fits-all approach is not ideal. Users have the flexibility to opt for the closed-source Azure OpenAI embedding or one of the open-source embedding models, including the multilingual embedding model.
 
 ## Document Indexing (Vector Store)
 

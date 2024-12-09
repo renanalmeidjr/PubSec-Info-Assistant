@@ -12,54 +12,50 @@ from typing import List
 import base64
 import requests
 import random
-from urllib.parse import unquote
-from azure.storage.blob import BlobServiceClient
 from azure.storage.queue import QueueClient, TextBase64EncodePolicy
 from azure.search.documents import SearchClient
-from azure.core.credentials import AzureKeyCredential
+from azure.identity import ManagedIdentityCredential, DefaultAzureCredential, get_bearer_token_provider, AzureAuthorityHosts
 from data_model import (EmbeddingResponse, ModelInfo, ModelListResponse,
                         StatusResponse)
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
-from fastapi_utils.tasks import repeat_every
 from model_handling import load_models
 import openai
+from openai import AzureOpenAI
 from tenacity import retry, wait_random_exponential, stop_after_attempt
 from sentence_transformers import SentenceTransformer
 from shared_code.utilities_helper import UtilitiesHelper
 from shared_code.status_log import State, StatusClassification, StatusLog
-from shared_code.tags_helper import TagsHelper
+from azure.storage.blob import BlobServiceClient
+from urllib.parse import unquote
 
 # === ENV Setup ===
 
 ENV = {
-    "AZURE_BLOB_STORAGE_KEY": None,
     "EMBEDDINGS_QUEUE": None,
     "LOG_LEVEL": "DEBUG", # Will be overwritten by LOG_LEVEL in Environment
     "DEQUEUE_MESSAGE_BATCH_SIZE": 1,
     "AZURE_BLOB_STORAGE_ACCOUNT": None,
     "AZURE_BLOB_STORAGE_CONTAINER": None,
     "AZURE_BLOB_STORAGE_ENDPOINT": None,
+    "AZURE_QUEUE_STORAGE_ENDPOINT": None,
     "AZURE_BLOB_STORAGE_UPLOAD_CONTAINER": None,
     "COSMOSDB_URL": None,
-    "COSMOSDB_KEY": None,
     "COSMOSDB_LOG_DATABASE_NAME": None,
     "COSMOSDB_LOG_CONTAINER_NAME": None,
-    "COSMOSDB_TAGS_DATABASE_NAME": None,
-    "COSMOSDB_TAGS_CONTAINER_NAME": None,
     "MAX_EMBEDDING_REQUEUE_COUNT": 5,
     "EMBEDDING_REQUEUE_BACKOFF": 60,
     "AZURE_OPENAI_SERVICE": None,
-    "AZURE_OPENAI_SERVICE_KEY": None,
+    "AZURE_OPENAI_ENDPOINT": None,
     "AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME": None,
     "AZURE_SEARCH_INDEX": None,
-    "AZURE_SEARCH_SERVICE_KEY": None,
-    "AZURE_SEARCH_SERVICE": None,
-    "BLOB_CONNECTION_STRING": None,
     "TARGET_EMBEDDINGS_MODEL": None,
     "EMBEDDING_VECTOR_SIZE": None,
     "AZURE_SEARCH_SERVICE_ENDPOINT": None,
-    "AZURE_BLOB_STORAGE_ENDPOINT": None
+    "AZURE_SEARCH_AUDIENCE": None,
+    "LOCAL_DEBUG": "false",
+    "AZURE_AI_CREDENTIAL_DOMAIN": None,
+    "AZURE_OPENAI_AUTHORITY_HOST": None
 }
 
 for key, value in ENV.items():
@@ -69,12 +65,34 @@ for key, value in ENV.items():
     elif value is None:
         raise ValueError(f"Environment variable {key} not set")
     
-search_creds = AzureKeyCredential(ENV["AZURE_SEARCH_SERVICE_KEY"])
-    
-openai.api_base = "https://" + ENV["AZURE_OPENAI_SERVICE"] + ".openai.azure.com/"
+openai.api_base = ENV["AZURE_OPENAI_ENDPOINT"]
 openai.api_type = "azure"
-openai.api_key = ENV["AZURE_OPENAI_SERVICE_KEY"]
-openai.api_version = "2023-06-01-preview"
+if ENV["AZURE_OPENAI_AUTHORITY_HOST"] == "AzureUSGovernment":
+    AUTHORITY = AzureAuthorityHosts.AZURE_GOVERNMENT
+else:
+    AUTHORITY = AzureAuthorityHosts.AZURE_PUBLIC_CLOUD
+openai.api_version = "2024-02-01"
+
+# When debugging in VSCode, use the current user identity to authenticate with Azure OpenAI,
+# Cognitive Search and Blob Storage (no secrets needed, just use 'az login' locally)
+# Use managed identity when deployed on Azure.
+# If you encounter a blocking error during a DefaultAzureCredntial resolution, you can exclude
+# the problematic credential by using a parameter (ex. exclude_shared_token_cache_credential=True)
+if ENV["LOCAL_DEBUG"] == "true":
+    azure_credential = DefaultAzureCredential(authority=AUTHORITY)
+else:
+    azure_credential = ManagedIdentityCredential(authority=AUTHORITY)
+# Comment these two lines out if using keys, set your API key in the OPENAI_API_KEY environment variable instead
+openai.api_type = "azure_ad"
+token_provider = get_bearer_token_provider(azure_credential,
+                                           f'https://{ENV["AZURE_AI_CREDENTIAL_DOMAIN"]}/.default')
+openai.azure_ad_token_provider = token_provider
+#openai.api_key = ENV["AZURE_OPENAI_SERVICE_KEY"]
+
+client = AzureOpenAI(
+        azure_endpoint = openai.api_base,
+        azure_ad_token_provider=token_provider,
+        api_version=openai.api_version)
 
 class AzOAIEmbedding(object):
     """A wrapper for a Azure OpenAI Embedding model"""
@@ -84,11 +102,13 @@ class AzOAIEmbedding(object):
     @retry(wait=wait_random_exponential(multiplier=1, max=10), stop=stop_after_attempt(5))
     def encode(self, texts):
         """Embeds a list of texts using a given model"""
-        response = openai.Embedding.create(
-            engine=self.deployment_name,
-            input=texts
+        response = client.embeddings.create(
+        model= self.deployment_name,
+        input=texts
         )
         return response
+    
+   
 
 class STModel(object):
     """A wrapper for a sentence-transformers model"""
@@ -113,12 +133,10 @@ log.info("Starting up")
 utilities_helper = UtilitiesHelper(
     azure_blob_storage_account=ENV["AZURE_BLOB_STORAGE_ACCOUNT"],
     azure_blob_storage_endpoint=ENV["AZURE_BLOB_STORAGE_ENDPOINT"],
-    azure_blob_storage_key=ENV["AZURE_BLOB_STORAGE_KEY"],
+    credential=azure_credential
 )
 
-statusLog = StatusLog(ENV["COSMOSDB_URL"], ENV["COSMOSDB_KEY"], ENV["COSMOSDB_LOG_DATABASE_NAME"], ENV["COSMOSDB_LOG_CONTAINER_NAME"])
-
-tagsHelper = TagsHelper(ENV["COSMOSDB_URL"], ENV["COSMOSDB_KEY"], ENV["COSMOSDB_TAGS_DATABASE_NAME"], ENV["COSMOSDB_TAGS_CONTAINER_NAME"])
+statusLog = StatusLog(ENV["COSMOSDB_URL"], azure_credential, ENV["COSMOSDB_LOG_DATABASE_NAME"], ENV["COSMOSDB_LOG_CONTAINER_NAME"])
 # === API Setup ===
 
 start_time = datetime.now()
@@ -228,7 +246,8 @@ def embed_texts(model: str, texts: List[str]):
     try:
         if model.startswith("azure-openai_"):
             embeddings = model_obj.encode(texts)
-            embeddings = embeddings['data'][0]['embedding']
+            embeddings= embeddings.data[0].embedding
+            
         else:
             embeddings = model_obj.encode(texts)
             embeddings = embeddings.tolist()[0]
@@ -252,31 +271,12 @@ def index_sections(chunks):
     """    
     search_client = SearchClient(endpoint=ENV["AZURE_SEARCH_SERVICE_ENDPOINT"],
                                     index_name=ENV["AZURE_SEARCH_INDEX"],
-                                    credential=search_creds)    
+                                    credential=azure_credential,
+                                    audience=ENV["AZURE_SEARCH_AUDIENCE"])
 
     results = search_client.upload_documents(documents=chunks)
     succeeded = sum([1 for r in results if r.succeeded])
     log.debug(f"\tIndexed {len(results)} chunks, {succeeded} succeeded")
-
-def get_tags_and_upload_to_cosmos(blob_service_client, blob_path):
-    """ Gets the tags from the blob metadata and uploads them to cosmos db"""
-    file_name, file_extension, file_directory = utilities_helper.get_filename_and_extension(blob_path)
-    path = file_directory + file_name + file_extension
-    blob_client = blob_service_client.get_blob_client(
-        container=ENV["AZURE_BLOB_STORAGE_UPLOAD_CONTAINER"],
-        blob=path)
-    blob_properties = blob_client.get_blob_properties()
-    tags = blob_properties.metadata.get("tags")
-    if tags is not None:
-        if isinstance(tags, str):
-            tags_list = [unquote(tags)]
-        else:
-            tags_list = [unquote(tag) for tag in tags.split(",")]
-    else:
-        tags_list = []
-    # Write the tags to cosmos db
-    tagsHelper.upsert_document(blob_path, tags_list)
-    return tags_list
 
 @app.on_event("startup") 
 def startup_event():
@@ -289,6 +289,31 @@ def poll_queue_thread():
         poll_queue()
         time.sleep(5)     
         
+def get_tags(blob_path):
+    """ Retrieves tags from the upload container blob
+    """     
+    # Remove the container prefix
+    path_parts = blob_path.split('/')
+    blob_path = '/'.join(path_parts[1:])
+
+    blob_service_client = BlobServiceClient(ENV["AZURE_BLOB_STORAGE_ENDPOINT"],
+                                            credential=azure_credential)
+    blob_client = blob_service_client.get_blob_client(
+        container=ENV["AZURE_BLOB_STORAGE_UPLOAD_CONTAINER"],
+        blob=blob_path)
+
+    blob_properties = blob_client.get_blob_properties()
+    tags = blob_properties.metadata.get("tags")
+    if tags != '' and tags is not None:
+        if isinstance(tags, str):
+            tags_list = [unquote(tag.strip()) for tag in tags.split(",")]
+        else:
+            tags_list = [unquote(tag.strip()) for tag in tags]
+    else:
+        tags_list = []
+    return tags_list
+
+
 def poll_queue() -> None:
     """Polls the queue for messages and embeds them"""
     
@@ -296,9 +321,9 @@ def poll_queue() -> None:
         log.debug("Skipping poll_queue call, models not yet loaded")
         return
     
-    queue_client = QueueClient.from_connection_string(
-        conn_str=ENV["BLOB_CONNECTION_STRING"], queue_name=ENV["EMBEDDINGS_QUEUE"]
-    )
+    queue_client = QueueClient(account_url=ENV["AZURE_QUEUE_STORAGE_ENDPOINT"],
+                               queue_name=ENV["EMBEDDINGS_QUEUE"],
+                               credential=azure_credential)
 
     log.debug("Polling embeddings queue for messages...")
     response = queue_client.receive_messages(max_messages=int(ENV["DEQUEUE_MESSAGE_BATCH_SIZE"]))
@@ -322,20 +347,27 @@ def poll_queue() -> None:
 
         try:  
             statusLog.upsert_document(blob_path, f'Embeddings process started with model {target_embeddings_model}', StatusClassification.INFO, State.PROCESSING)
-        
+            log.debug("Processing file: %s", blob_path)
             file_name, file_extension, file_directory  = utilities_helper.get_filename_and_extension(blob_path)
             chunk_folder_path = file_directory + file_name + file_extension
-            blob_service_client = BlobServiceClient.from_connection_string(ENV["BLOB_CONNECTION_STRING"])
+            blob_service_client = BlobServiceClient(ENV["AZURE_BLOB_STORAGE_ENDPOINT"],
+                                            credential=azure_credential)
             container_client = blob_service_client.get_container_client(ENV["AZURE_BLOB_STORAGE_CONTAINER"])
             index_chunks = []
+                                    
+            # get tags to apply to the chunk
+            tag_list = get_tags(blob_path)
+            log.debug("Successfully pulled tags for %s. %d tags found.", blob_path, len(tag_list))
 
             # Iterate over the chunks in the container
             chunk_list = container_client.list_blobs(name_starts_with=chunk_folder_path)
             chunks = list(chunk_list)
             i = 0
+            log.debug("Processing %d chunks", len(chunks))         
             for chunk in chunks:
-
-                statusLog.update_document_state( blob_path, f"Indexing {i+1}/{len(chunks)}")
+                log.debug("Processing chunk %s", chunk.name)
+                statusLog.update_document_state( blob_path, f"Indexing {i+1}/{len(chunks)}", State.INDEXING)
+                # statusLog.update_document_state( blob_path, f"Indexing {i+1}/{len(chunks)}", State.PROCESSING
                 # open the file and extract the content
                 blob_path_plus_sas = utilities_helper.get_blob_and_sas(
                     ENV["AZURE_BLOB_STORAGE_CONTAINER"] + '/' + chunk.name)
@@ -359,12 +391,15 @@ def poll_queue() -> None:
                         chunk_dict["content"]
                     )
 
-                # create embedding
-                embedding = embed_texts(target_embeddings_model, [text])
-                embedding_data = embedding['data']
+                try:
+                    # try first to read the embedding from the chunk, in case it was already created
+                    embedding_data = chunk_dict['contentVector']
+                except KeyError:      
+                    # create embedding
+                    embedding = embed_texts(target_embeddings_model, [text])
+                    embedding_data = embedding['data']      
 
-                tag_list = get_tags_and_upload_to_cosmos(blob_service_client, chunk_dict["file_name"])
-
+                # Prepare the index schema based representation of the chunk with the embedding
                 index_chunk = {}
                 index_chunk['id'] = statusLog.encode_document_id(chunk.name)
                 index_chunk['processed_datetime'] = f"{chunk_dict['processed_datetime']}+00:00"
@@ -382,15 +417,23 @@ def poll_queue() -> None:
                 index_chunk['entities'] = chunk_dict["entities"]
                 index_chunk['key_phrases'] = chunk_dict["key_phrases"]
                 index_chunks.append(index_chunk)
+
+                # write the updated chunk, with embedding to storage in case of failure
+                chunk_dict['contentVector'] = embedding_data
+                json_str = json.dumps(chunk_dict, indent=2, ensure_ascii=False)
+                block_blob_client = blob_service_client.get_blob_client(container=ENV["AZURE_BLOB_STORAGE_CONTAINER"], blob=chunk.name)
+                block_blob_client.upload_blob(json_str, overwrite=True)
                 i += 1
                 
-                # push batch of content to index
+                # push batch of content to index, rather than each individual chunk
                 if i % 200 == 0:
+                    log.debug("Indexing %d chunks", i)
                     index_sections(index_chunks)
                     index_chunks = []
 
             # push remainder chunks content to index
             if len(index_chunks) > 0:
+                log.debug("Indexing last %d chunks", len(index_chunks))
                 index_sections(index_chunks)
 
             statusLog.upsert_document(blob_path,
@@ -398,6 +441,7 @@ def poll_queue() -> None:
                                       StatusClassification.INFO, State.COMPLETE)
 
         except Exception as error:
+            log.debug("An error occurred: %s", str(error))
             # Dequeue message and update the embeddings queued count to limit the max retries
             try:
                 requeue_count = message_json['embeddings_queued_count']
@@ -408,16 +452,16 @@ def poll_queue() -> None:
             if requeue_count <= int(ENV["MAX_EMBEDDING_REQUEUE_COUNT"]):
                 message_json['embeddings_queued_count'] = requeue_count
                 # Requeue with a random backoff within limits
-                queue_client = QueueClient.from_connection_string(
-                    ENV["BLOB_CONNECTION_STRING"], 
-                    ENV["EMBEDDINGS_QUEUE"], 
-                    message_encode_policy=TextBase64EncodePolicy())
+                queue_client = QueueClient(account_url=ENV["AZURE_QUEUE_STORAGE_ENDPOINT"],
+                               queue_name=ENV["EMBEDDINGS_QUEUE"],
+                               credential=azure_credential,
+                               message_encode_policy=TextBase64EncodePolicy())
                 message_string = json.dumps(message_json)
                 max_seconds = int(ENV["EMBEDDING_REQUEUE_BACKOFF"]) * (requeue_count**2)
                 backoff = random.randint(
                     int(ENV["EMBEDDING_REQUEUE_BACKOFF"]) * requeue_count, max_seconds)                
                 queue_client.send_message(message_string, visibility_timeout=backoff)
-                statusLog.upsert_document(blob_path, f'Message requed to embeddings queue, attempt {str(requeue_count)}. Visible in {str(backoff)} seconds. Error: {str(error)}.',
+                statusLog.upsert_document(blob_path, f'Message requeued to embeddings queue, attempt {str(requeue_count)}. Visible in {str(backoff)} seconds. Error: {str(error)}.',
                                           StatusClassification.ERROR,
                                           State.QUEUED)
             else:
