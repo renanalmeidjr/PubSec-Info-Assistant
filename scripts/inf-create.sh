@@ -98,6 +98,8 @@ else
   kvAccessObjectId=$signedInUserId
   #if not in automation, create the app registration and service principal values
   #set up azure ad app registration since there is no bicep support for this yet
+  
+  echo "Permissões 1."
   aadWebAppId=$(az ad app list --display-name infoasst_web_access_$RANDOM_STRING --output tsv --query [].appId)
   if [ -z $aadWebAppId ]
     then
@@ -105,12 +107,14 @@ else
       aadWebAppId=$(az ad app list --display-name infoasst_web_access_$RANDOM_STRING --output tsv --query [].appId)
     fi
   
+  echo "Permissões 2."
   aadWebSPId=$(az ad sp list --display-name infoasst_web_access_$RANDOM_STRING --output tsv --query "[].id")
   if [ -z $aadWebSPId ]; then
       aadWebSPId=$(az ad sp create --id $aadWebAppId --output tsv --query "[].id")
       aadWebSPId=$(az ad sp list --display-name infoasst_web_access_$RANDOM_STRING --output tsv --query "[].id")
   fi
 
+  echo "Permissões 3."
   aadMgmtAppId=$(az ad app list --display-name infoasst_mgmt_access_$RANDOM_STRING --output tsv --query [].appId)
   if [ -z $aadMgmtAppId ]
     then
@@ -119,12 +123,14 @@ else
     fi
     aadMgmtAppSecret=$(az ad app credential reset --id $aadMgmtAppId --display-name infoasst-mgmt --output tsv --query password)
 
+  echo "Permissões 4."
   aadMgmtSPId=$(az ad sp list --display-name infoasst_mgmt_access_$RANDOM_STRING --output tsv --query "[].id")
   if [ -z $aadMgmtSPId ]; then
       aadMgmtSPId=$(az ad sp create --id $aadMgmtAppId --output tsv --query "[].id")
       aadMgmtSPId=$(az ad sp list --display-name infoasst_mgmt_access_$RANDOM_STRING --output tsv --query "[].id")
   fi
 
+  echo "Permissões 5."
   #Default true if undefined
   REQUIRE_WEBSITE_SECURITY_MEMBERSHIP=${REQUIRE_WEBSITE_SECURITY_MEMBERSHIP:-true}
 
@@ -137,6 +143,7 @@ else
   fi
 fi
 
+echo "Permissões 6."
 export SINGED_IN_USER_PRINCIPAL=$signedInUserId
 export AZURE_AD_WEB_APP_CLIENT_ID=$aadWebAppId
 export AZURE_AD_MGMT_APP_CLIENT_ID=$aadMgmtAppId
@@ -144,12 +151,14 @@ export AZURE_AD_MGMT_SP_ID=$aadMgmtSPId
 export AZURE_AD_MGMT_APP_SECRET=$aadMgmtAppSecret
 export AZURE_KV_ACCESS_OBJ_ID=$kvAccessObjectId
 
+echo "Permissões 7."
 if [ -n "${IN_AUTOMATION}" ]; then 
   export IS_IN_AUTOMATION=true
 else 
   export IS_IN_AUTOMATION=false
 fi
 
+echo "Permissões 8."
 #set up parameter file
 declare -A REPLACE_TOKENS=(
     [\${WORKSPACE}]=${WORKSPACE}
@@ -190,16 +199,21 @@ declare -A REPLACE_TOKENS=(
 parameter_json=$(cat "$DIR/../infra/main.parameters.json.template")
 for token in "${!REPLACE_TOKENS[@]}"
 do
+  echo "Permissões 69."
   parameter_json="${parameter_json//"$token"/"${REPLACE_TOKENS[$token]}"}"
 done
 echo $parameter_json > $DIR/../infra/main.parameters.json
 
+echo $parameter_json
+echo "Permissões 9."
 #make sure bicep is always the latest version
 az bicep upgrade
 
+echo "Permissões 10."
 #Check and Remove if exists the CUA deployment Object to resolve Bicep limitations
 az deployment sub delete --name "pid-${CUSTOMER_USAGE_ATTRIBUTION_ID}"
 
+echo "Permissões 11."
 #deploy bicep
 az deployment sub what-if --location $LOCATION --template-file main.bicep --parameters main.parameters.json --name $RG_NAME
 if [ -z $SKIP_PLAN_CHECK ]
